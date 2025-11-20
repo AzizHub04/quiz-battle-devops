@@ -1,0 +1,67 @@
+pipeline {
+    agent any
+
+    environment {
+        VERSION = ""
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Extract Version') {
+            steps {
+                script {
+                    VERSION = sh(script: "git describe --tags", returnStdout: true).trim()
+                    echo "VERSION: ${VERSION}"
+                }
+            }
+        }
+
+        stage('Setup Node Modules') {
+            steps {
+                sh 'npm install --legacy-peer-deps'
+            }
+        }
+
+        stage('Build React App') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Docker Build Versioned') {
+            steps {
+                sh "docker build -t quiz:${VERSION} ."
+            }
+        }
+
+        stage('Docker Run') {
+            steps {
+                sh "docker run -d -p 8085:80 --name quiz-${VERSION} quiz:${VERSION}"
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh 'SMOKE_PORT=8085 node smoke-test.js'
+            }
+        }
+
+        stage('Archive Artifacts') {
+            steps {
+                archiveArtifacts artifacts: 'build/**', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'logs/**', allowEmptyArchive: true
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker rm -f quiz-* || true'
+        }
+    }
+}
