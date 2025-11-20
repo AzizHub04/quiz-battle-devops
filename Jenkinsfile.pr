@@ -10,31 +10,62 @@ pipeline {
 
         stage('Setup Node Modules') {
             steps {
-                sh 'npm install --legacy-peer-deps'
+                script {
+                    if (isUnix()) {
+                        sh 'npm install --legacy-peer-deps'
+                    } else {
+                        bat 'npm install --legacy-peer-deps'
+                    }
+                }
             }
         }
 
         stage('Build React App') {
             steps {
-                sh 'npm run build'
+                script {
+                    if (isUnix()) {
+                        sh 'npm run build'
+                    } else {
+                        bat 'npm run build'
+                    }
+                }
             }
         }
 
         stage('Docker Build') {
             steps {
-                sh 'docker build -t quiz-pr .'
+                script {
+                    if (isUnix()) {
+                        sh 'docker build -t quiz-pr .'
+                    } else {
+                        bat 'docker build -t quiz-pr .'
+                    }
+                }
             }
         }
 
         stage('Docker Run') {
             steps {
-                sh 'docker run -d -p 8085:80 --name quiz-pr quiz-pr'
+                script {
+                    if (isUnix()) {
+                        sh 'docker run -d -p 8085:80 --name quiz-pr quiz-pr'
+                    } else {
+                        bat 'docker run -d -p 8085:80 --name quiz-pr quiz-pr'
+                    }
+                }
             }
         }
 
         stage('Smoke Test') {
             steps {
-                sh 'SMOKE_PORT=8085 node smoke-test.js'
+                script {
+                    if (isUnix()) {
+                        sh 'SMOKE_PORT=8085 node smoke-test.js'
+                    } else {
+                        // set environment variable for this command and run node on Windows CMD
+                        bat 'set "SMOKE_PORT=8085" && node smoke-test.js'
+                    }
+                }
             }
         }
 
@@ -47,7 +78,15 @@ pipeline {
 
     post {
         always {
-            sh 'docker rm -f quiz-pr || true'
+            script {
+                if (isUnix()) {
+                    // ignore errors if container not present
+                    sh 'docker rm -f quiz-pr || true'
+                } else {
+                    // in Windows CMD, use || to fall back to a successful exit so the post step doesn't fail
+                    bat 'docker rm -f quiz-pr || exit /b 0'
+                }
+            }
         }
     }
 }
