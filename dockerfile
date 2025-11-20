@@ -1,0 +1,21 @@
+# ---------- Build Stage ----------
+FROM node:18 AS builder
+WORKDIR /app
+
+# Copie package.json + install
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
+
+# Copie du code + build
+COPY . .
+RUN npm run build
+
+# ---------- Production Stage ----------
+FROM nginx:alpine
+# Copie du build React dans nginx
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Le conteneur exposera le port 80
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

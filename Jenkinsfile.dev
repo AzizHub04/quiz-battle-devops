@@ -1,0 +1,54 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Setup Node Modules') {
+            steps {
+                sh 'npm install --legacy-peer-deps'
+            }
+        }
+
+        stage('Build React App') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t quiz-dev .'
+            }
+        }
+
+        stage('Docker Run') {
+            steps {
+                sh 'docker run -d -p 8085:80 --name quiz-dev quiz-dev'
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh 'SMOKE_PORT=8085 node smoke-test.js'
+            }
+        }
+
+        stage('Archive Artifacts') {
+            steps {
+                archiveArtifacts artifacts: 'build/**', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'logs/**', allowEmptyArchive: true
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker rm -f quiz-dev || true'
+        }
+    }
+}
