@@ -1,4 +1,4 @@
-# ---------- Build Stage ----------
+#!---------- Build Stage ----------
 FROM node:18 AS builder
 WORKDIR /app
 
@@ -10,7 +10,7 @@ RUN npm install --legacy-peer-deps
 COPY . .
 RUN npm run build
 
-# ---------- Production Stage ----------
+#!---------- Production Stage ----------
 FROM nginx:alpine
 # Copie du build React dans nginx
 COPY --from=builder /app/build /usr/share/nginx/html
