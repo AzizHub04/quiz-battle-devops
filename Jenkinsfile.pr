@@ -12,9 +12,9 @@ pipeline {
             steps {
                 script {
                     if (isUnix()) {
-                        sh 'npm install --legacy-peer-deps'
+                        sh 'npm ci --legacy-peer-deps || npm install --legacy-peer-deps'
                     } else {
-                        bat 'npm install --legacy-peer-deps'
+                        bat 'npm ci --legacy-peer-deps || npm install --legacy-peer-deps'
                     }
                 }
             }
@@ -83,7 +83,7 @@ pipeline {
                     // ignore errors if container not present
                     sh 'docker rm -f quiz-pr || true'
                 } else {
-                    // in Windows CMD, use || to fall back to a successful exit so the post step doesn't fail
+                    // ensure the post step exits successfully even if container is missing
                     bat 'docker rm -f quiz-pr || exit /b 0'
                 }
             }
