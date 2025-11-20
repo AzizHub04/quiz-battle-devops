@@ -1,21 +1,53 @@
-#!---------- Build Stage ----------
-FROM node:18 AS builder
-WORKDIR /app
+pipeline {
+    agent any
 
-# Copie package.json + install
-COPY package*.json ./
-RUN npm install --legacy-peer-deps
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
 
-# Copie du code + build
-COPY . .
-RUN npm run build
+        stage('Setup Node Modules') {
+            steps {
+                sh 'npm install --legacy-peer-deps'
+            }
+        }
 
-#!---------- Production Stage ----------
-FROM nginx:alpine
-# Copie du build React dans nginx
-COPY --from=builder /app/build /usr/share/nginx/html
+        stage('Build React App') {
+            steps {
+                sh 'npm run build'
+            }
+        }
 
-# Le conteneur exposera le port 80
-EXPOSE 80
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t quiz-pr .'
+            }
+        }
 
-CMD ["nginx", "-g", "daemon off;"]
+        stage('Docker Run') {
+            steps {
+                sh 'docker run -d -p 8085:80 --name quiz-pr quiz-pr'
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                sh 'SMOKE_PORT=8085 node smoke-test.js'
+            }
+        }
+
+        stage('Archive Build') {
+            steps {
+                archiveArtifacts artifacts: 'build/**', allowEmptyArchive: true
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker rm -f quiz-pr || true'
+        }
+    }
+}
