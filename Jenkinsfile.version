@@ -108,11 +108,11 @@ pipeline {
             steps {
                 dir('workspace_checkout') {
                     script {
-                        def image = "quiz:${env.RELEASE_TAG}"
+                        def image = "quiz:${env.RELEASE_TAG}" // Correctly set the image name
                         if (isUnix()) {
-                            sh "docker build -t ${image} ."
+                            sh "docker build -t ${image} ." // Correct Docker build command
                         } else {
-                            bat "docker build -t ${image} ."
+                            bat "docker build -t ${image} ." // Correct Docker build command for Windows
                         }
                         env.IMAGE_NAME = image
                     }
