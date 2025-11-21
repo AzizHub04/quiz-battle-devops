@@ -47,6 +47,14 @@ pipeline {
         stage('Docker Run') {
             steps {
                 script {
+                    // Remove existing container if it exists
+                    if (isUnix()) {
+                        sh 'docker rm -f quiz-pr || true'
+                    } else {
+                        bat 'docker rm -f quiz-pr || exit /b 0'
+                    }
+                    
+                    // Run the new container
                     if (isUnix()) {
                         sh 'docker run -d -p 8085:80 --name quiz-pr quiz-pr'
                     } else {
