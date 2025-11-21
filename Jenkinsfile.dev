@@ -35,10 +35,13 @@ pipeline {
         stage('Docker Build') {
             steps {
                 script {
+                    // ensure base image available and avoid BuildKit lease error
                     if (isUnix()) {
-                        sh 'docker build -t quiz-dev .'
+                        sh 'docker pull nginx:alpine || true'
+                        sh 'DOCKER_BUILDKIT=0 docker build -t quiz-dev .'
                     } else {
-                        bat 'docker build -t quiz-dev .'
+                        bat 'docker pull nginx:alpine  || exit /b 0'
+                        bat 'set "DOCKER_BUILDKIT=0" && docker build -t quiz-dev .'
                     }
                 }
             }
