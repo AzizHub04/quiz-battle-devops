@@ -1,14 +1,16 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'HOST_PORT', defaultValue: '8085', description: 'Host port to bind container')
+    }
+
     stages {
         stage('Checkout') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
 
-        stage('Install Node Modules') {
+        stage('Install') {
             steps {
                 script {
                     if (isUnix()) {
@@ -20,7 +22,7 @@ pipeline {
             }
         }
 
-        stage('Build React App') {
+        stage('Build') {
             steps {
                 script {
                     if (isUnix()) {
@@ -47,18 +49,13 @@ pipeline {
         stage('Docker Run') {
             steps {
                 script {
-                    // Remove existing container if it exists
+                    def port = params.HOST_PORT ?: '8085'
                     if (isUnix()) {
-                        sh 'docker rm -f quiz-dev || true'
+                        sh "docker rm -f quiz-dev || true"
+                        sh "docker run -d -p ${port}:80 --name quiz-dev quiz-dev"
                     } else {
-                        bat 'docker rm -f quiz-dev || exit /b 0'
-                    }
-
-                    // Run the new container
-                    if (isUnix()) {
-                        sh 'docker run -d -p 8085:80 --name quiz-dev quiz-dev'
-                    } else {
-                        bat 'docker run -d -p 8085:80 --name quiz-dev quiz-dev'
+                        bat "docker rm -f quiz-dev || exit /b 0"
+                        bat "docker run -d -p ${port}:80 --name quiz-dev quiz-dev"
                     }
                 }
             }
@@ -67,18 +64,19 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 script {
+                    def port = params.HOST_PORT ?: '8085'
                     if (isUnix()) {
-                        sh 'node smoke-test.cjs'
+                        sh "export SMOKE_PORT=${port} && node smoke-test.cjs"
                     } else {
-                        bat 'node smoke-test.cjs'
+                        bat "set \"SMOKE_PORT=${port}\" && node smoke-test.cjs"
                     }
                 }
             }
         }
 
-        stage('Archive Build') {
+        stage('Archive') {
             steps {
-                archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: false
             }
         }
     }
