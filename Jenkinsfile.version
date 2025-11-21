@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    environment {
-        VERSION = ""
-    }
-
     stages {
         stage('Checkout') {
             steps {
@@ -12,56 +8,93 @@ pipeline {
             }
         }
 
-        stage('Extract Version') {
+        stage('Install Node Modules') {
             steps {
                 script {
-                    VERSION = sh(script: "git describe --tags", returnStdout: true).trim()
-                    echo "VERSION: ${VERSION}"
+                    if (isUnix()) {
+                        sh 'npm install --legacy-peer-deps'
+                    } else {
+                        bat 'npm install --legacy-peer-deps'
+                    }
                 }
-            }
-        }
-
-        stage('Setup Node Modules') {
-            steps {
-                sh 'npm install --legacy-peer-deps'
             }
         }
 
         stage('Build React App') {
             steps {
-                sh 'npm run build'
+                script {
+                    if (isUnix()) {
+                        sh 'npm run build'
+                    } else {
+                        bat 'npm run build'
+                    }
+                }
             }
         }
 
-        stage('Docker Build Versioned') {
+        stage('Docker Build') {
             steps {
-                sh "docker build -t quiz:${VERSION} ."
+                script {
+                    // Get the latest git tag
+                    def tag = sh(script: 'git describe --tags --abbrev=0', returnStdout: true).trim()
+                    if (isUnix()) {
+                        sh "docker build -t quiz:${tag} ."
+                    } else {
+                        bat "docker build -t quiz:${tag} ."
+                    }
+                }
             }
         }
 
         stage('Docker Run') {
             steps {
-                sh "docker run -d -p 8085:80 --name quiz-${VERSION} quiz:${VERSION}"
+                script {
+                    // Remove existing container if it exists
+                    if (isUnix()) {
+                        sh 'docker rm -f quiz || true'
+                    } else {
+                        bat 'docker rm -f quiz || exit /b 0'
+                    }
+
+                    // Run the new container
+                    def tag = sh(script: 'git describe --tags --abbrev=0', returnStdout: true).trim()
+                    if (isUnix()) {
+                        sh "docker run -d -p 8085:80 --name quiz quiz:${tag}"
+                    } else {
+                        bat "docker run -d -p 8085:80 --name quiz quiz:${tag}"
+                    }
+                }
             }
         }
 
         stage('Smoke Test') {
             steps {
-                sh 'SMOKE_PORT=8085 node smoke-test.js'
+                script {
+                    if (isUnix()) {
+                        sh 'node smoke-test.cjs'
+                    } else {
+                        bat 'node smoke-test.cjs'
+                    }
+                }
             }
         }
 
-        stage('Archive Artifacts') {
+        stage('Archive Build') {
             steps {
-                archiveArtifacts artifacts: 'build/**', allowEmptyArchive: true
-                archiveArtifacts artifacts: 'logs/**', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: true
             }
         }
     }
 
     post {
         always {
-            sh 'docker rm -f quiz-* || true'
+            script {
+                if (isUnix()) {
+                    sh 'docker rm -f quiz || true'
+                } else {
+                    bat 'docker rm -f quiz || exit /b 0'
+                }
+            }
         }
     }
 }

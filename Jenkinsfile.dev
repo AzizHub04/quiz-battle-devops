@@ -8,47 +8,90 @@ pipeline {
             }
         }
 
-        stage('Setup Node Modules') {
+        stage('Install Node Modules') {
             steps {
-                sh 'npm install --legacy-peer-deps'
+                script {
+                    if (isUnix()) {
+                        sh 'npm install --legacy-peer-deps'
+                    } else {
+                        bat 'npm install --legacy-peer-deps'
+                    }
+                }
             }
         }
 
         stage('Build React App') {
             steps {
-                sh 'npm run build'
+                script {
+                    if (isUnix()) {
+                        sh 'npm run build'
+                    } else {
+                        bat 'npm run build'
+                    }
+                }
             }
         }
 
         stage('Docker Build') {
             steps {
-                sh 'docker build -t quiz-dev .'
+                script {
+                    if (isUnix()) {
+                        sh 'docker build -t quiz-dev .'
+                    } else {
+                        bat 'docker build -t quiz-dev .'
+                    }
+                }
             }
         }
 
         stage('Docker Run') {
             steps {
-                sh 'docker run -d -p 8085:80 --name quiz-dev quiz-dev'
+                script {
+                    // Remove existing container if it exists
+                    if (isUnix()) {
+                        sh 'docker rm -f quiz-dev || true'
+                    } else {
+                        bat 'docker rm -f quiz-dev || exit /b 0'
+                    }
+
+                    // Run the new container
+                    if (isUnix()) {
+                        sh 'docker run -d -p 8085:80 --name quiz-dev quiz-dev'
+                    } else {
+                        bat 'docker run -d -p 8085:80 --name quiz-dev quiz-dev'
+                    }
+                }
             }
         }
 
         stage('Smoke Test') {
             steps {
-                sh 'SMOKE_PORT=8085 node smoke-test.js'
+                script {
+                    if (isUnix()) {
+                        sh 'node smoke-test.cjs'
+                    } else {
+                        bat 'node smoke-test.cjs'
+                    }
+                }
             }
         }
 
-        stage('Archive Artifacts') {
+        stage('Archive Build') {
             steps {
-                archiveArtifacts artifacts: 'build/**', allowEmptyArchive: true
-                archiveArtifacts artifacts: 'logs/**', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: true
             }
         }
     }
 
     post {
         always {
-            sh 'docker rm -f quiz-dev || true'
+            script {
+                if (isUnix()) {
+                    sh 'docker rm -f quiz-dev || true'
+                } else {
+                    bat 'docker rm -f quiz-dev || exit /b 0'
+                }
+            }
         }
     }
 }
