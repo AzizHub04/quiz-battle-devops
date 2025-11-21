@@ -47,7 +47,7 @@ pipeline {
         stage('Docker Run') {
             steps {
                 script {
-                    // Remove existing container if it exists (safe)
+                    // Ensure any old container is removed before starting
                     if (isUnix()) {
                         sh 'docker rm -f quiz-pr || true'
                     } else {
@@ -67,10 +67,7 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 script {
-                    // The repo currently uses "type":"module" so .js is treated as ESM.
-                    // Preferred fix: rename smoke-test.js -> smoke-test.cjs (or convert it to ESM).
-                    // Here we attempt to run smoke-test.cjs. If you haven't renamed the file,
-                    // either rename it or convert it to ESM (use import).
+                    // Run CommonJS smoke test (smoke-test.cjs). We created a CJS copy of the original file.
                     if (isUnix()) {
                         sh 'node smoke-test.cjs'
                     } else {
