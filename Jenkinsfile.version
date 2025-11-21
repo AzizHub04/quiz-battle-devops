@@ -2,89 +2,55 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'TAG', defaultValue: '', description: 'Git tag to build (e.g. v1.2.3). If empty, latest tag will be used.')
+        string(name: 'TAG', defaultValue: '', description: 'Git tag to build (e.g. v1.2.3). If empty, the tag pointing at HEAD or latest tag will be used.')
         string(name: 'HOST_PORT', defaultValue: '8085', description: 'Host port for container')
     }
 
+    environment {
+        WORKDIR = "${env.WORKSPACE}"
+    }
+
     stages {
-        stage('Prepare') {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('Resolve Tag') {
             steps {
                 script {
-                    // Perform an explicit git clone/fetch that fetches tags (avoid wildcard Branch Specifier)
-                    def repo = scm.userRemoteConfigs[0].url
-                    if (isUnix()) {
-                        sh """
-                            rm -rf repo && git clone --no-tags --depth=1 ${repo} repo || true
-                            cd repo
-                            git fetch --tags --prune --prune-tags
-                        """
-                    } else {
-                        bat """
-                            if exist repo rmdir /s /q repo
-                            git clone --no-tags --depth=1 ${repo} repo || exit /b 0
-                            cd repo
-                            git fetch --tags --prune --prune-tags
-                        """
-                    }
-
-                    // determine tag
                     def chosenTag = params.TAG?.trim()
                     if (!chosenTag) {
                         if (isUnix()) {
-                            chosenTag = sh(script: "cd repo && git describe --tags --abbrev=0", returnStdout: true).trim()
+                            chosenTag = sh(script: 'git tag --points-at HEAD || true', returnStdout: true).trim()
+                            if (!chosenTag) {
+                                chosenTag = sh(script: 'git describe --tags --abbrev=0 2>/dev/null || true', returnStdout: true).trim()
+                            }
                         } else {
-                            chosenTag = bat(script: "cd repo && git describe --tags --abbrev=0", returnStdout: true).trim()
+                            // run in cmd; avoid non-zero failing the step
+                            chosenTag = bat(returnStdout: true, script: 'git tag --points-at HEAD 2>nul || echo').trim()
+                            if (!chosenTag) {
+                                chosenTag = bat(returnStdout: true, script: 'git describe --tags --abbrev=0 2>nul || echo').trim()
+                            }
                         }
                     }
-                    if (!chosenTag) {
-                        error "No tag found. Provide TAG parameter or push a tag (refs/tags/*)."
-                    }
-                    env.RELEASE_TAG = chosenTag
-                    echo "Building tag: ${env.RELEASE_TAG}"
-                }
-            }
-        }
 
-        stage('Checkout Tag') {
-            steps {
-                script {
-                    // checkout the chosen tag into workspace
-                    if (isUnix()) {
-                        sh """
-                            rm -rf workspace_checkout || true
-                            mkdir workspace_checkout
-                            cd repo
-                            git checkout ${env.RELEASE_TAG}
-                            cd ..
-                            rsync -a --delete repo/ workspace_checkout/ || true
-                        """
-                    } else {
-                        bat """
-                            if exist workspace_checkout rmdir /s /q workspace_checkout
-                            mkdir workspace_checkout
-                            cd repo
-                            git checkout ${env.RELEASE_TAG}
-                            cd ..
-                            robocopy repo workspace_checkout /MIR
-                        """
+                    if (!chosenTag) {
+                        error "No git tag found for this build. Provide TAG parameter or build a tag (refs/tags/*)."
                     }
-                    // Move into workspace_checkout for the rest of stages
-                    dir('workspace_checkout') {
-                        echo "Repository checked out at ${env.RELEASE_TAG}"
-                    }
+
+                    env.RELEASE_TAG = chosenTag
+                    echo "Using tag: ${env.RELEASE_TAG}"
                 }
             }
         }
 
         stage('Install') {
             steps {
-                dir('workspace_checkout') {
-                    script {
-                        if (isUnix()) {
-                            sh 'npm install --legacy-peer-deps'
-                        } else {
-                            bat 'npm install --legacy-peer-deps'
-                        }
+                script {
+                    if (isUnix()) {
+                        sh 'npm install --legacy-peer-deps'
+                    } else {
+                        bat 'npm install --legacy-peer-deps'
                     }
                 }
             }
@@ -92,13 +58,11 @@ pipeline {
 
         stage('Build') {
             steps {
-                dir('workspace_checkout') {
-                    script {
-                        if (isUnix()) {
-                            sh 'npm run build'
-                        } else {
-                            bat 'npm run build'
-                        }
+                script {
+                    if (isUnix()) {
+                        sh 'npm run build'
+                    } else {
+                        bat 'npm run build'
                     }
                 }
             }
@@ -106,16 +70,14 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                dir('workspace_checkout') {
-                    script {
-                        def image = "quiz:${env.RELEASE_TAG}" // Correctly set the image name
-                        if (isUnix()) {
-                            sh "docker build -t ${image} ." // Correct Docker build command
-                        } else {
-                            bat "docker build -t ${image} ." // Correct Docker build command for Windows
-                        }
-                        env.IMAGE_NAME = image
+                script {
+                    def image = "quiz:${env.RELEASE_TAG}"
+                    if (isUnix()) {
+                        sh "docker build -t ${image} ."
+                    } else {
+                        bat "docker build -t ${image} ."
                     }
+                    env.IMAGE_NAME = image
                 }
             }
         }
@@ -124,15 +86,15 @@ pipeline {
             steps {
                 script {
                     def port = params.HOST_PORT ?: '8085'
-                    def container = "quiz-${env.RELEASE_TAG}"
+                    def containerName = "quiz-${env.RELEASE_TAG}"
                     if (isUnix()) {
-                        sh "docker rm -f ${container} || true"
-                        sh "docker run -d -p ${port}:80 --name ${container} ${env.IMAGE_NAME}"
+                        sh "docker rm -f ${containerName} || true"
+                        sh "docker run -d -p ${port}:80 --name ${containerName} ${env.IMAGE_NAME}"
                     } else {
-                        bat "docker rm -f ${container} || exit /b 0"
-                        bat "docker run -d -p ${port}:80 --name ${container} ${env.IMAGE_NAME}"
+                        bat "docker rm -f ${containerName} || exit /b 0"
+                        bat "docker run -d -p ${port}:80 --name ${containerName} ${env.IMAGE_NAME}"
                     }
-                    env.CONTAINER_NAME = container
+                    env.CONTAINER_NAME = containerName
                 }
             }
         }
@@ -142,9 +104,9 @@ pipeline {
                 script {
                     def port = params.HOST_PORT ?: '8085'
                     if (isUnix()) {
-                        sh "SMOKE_PORT=${port} node workspace_checkout/smoke-test.cjs"
+                        sh "SMOKE_PORT=${port} node smoke-test.cjs"
                     } else {
-                        bat "set \"SMOKE_PORT=${port}\" && node workspace_checkout\\smoke-test.cjs"
+                        bat "set \"SMOKE_PORT=${port}\" && node smoke-test.cjs"
                     }
                 }
             }
@@ -152,7 +114,7 @@ pipeline {
 
         stage('Archive') {
             steps {
-                archiveArtifacts artifacts: 'workspace_checkout/dist/**', allowEmptyArchive: false
+                archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: false
             }
         }
     }
@@ -164,7 +126,7 @@ pipeline {
                     if (isUnix()) {
                         sh "docker rm -f ${env.CONTAINER_NAME} || true"
                     } else {
-                        bat "docker rm -f %CONTAINER_NAME% || exit /b 0"
+                        bat "docker rm -f ${env.CONTAINER_NAME} || exit /b 0"
                     }
                 }
             }
