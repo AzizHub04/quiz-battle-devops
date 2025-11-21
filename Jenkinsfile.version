@@ -1,14 +1,39 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'TAG', defaultValue: '', description: 'Git tag to build (e.g. v1.2.4). If empty, the tag pointing at HEAD or latest tag will be used.')
+        string(name: 'HOST_PORT', defaultValue: '8085', description: 'Host port for container')
+    }
+
     stages {
         stage('Checkout') {
+            steps { checkout scm }
+        }
+
+        stage('Resolve Tag') {
             steps {
-                checkout scm
+                script {
+                    def chosenTag = params.TAG?.trim()
+                    if (!chosenTag) {
+                        if (isUnix()) {
+                            chosenTag = sh(script: "git tag --points-at HEAD || git describe --tags --abbrev=0 2>/dev/null || true", returnStdout: true).trim()
+                        } else {
+                            chosenTag = bat(returnStdout: true, script: 'git tag --points-at HEAD 2>nul || (git describe --tags --abbrev=0 2>nul || echo)').trim()
+                        }
+                    }
+
+                    if (!chosenTag) {
+                        error "No git tag found for this build. Provide TAG parameter or build a tag (refs/tags/*)."
+                    }
+
+                    env.RELEASE_TAG = chosenTag
+                    echo "Using tag: ${env.RELEASE_TAG}"
+                }
             }
         }
 
-        stage('Install Node Modules') {
+        stage('Install') {
             steps {
                 script {
                     if (isUnix()) {
@@ -20,7 +45,7 @@ pipeline {
             }
         }
 
-        stage('Build React App') {
+        stage('Build') {
             steps {
                 script {
                     if (isUnix()) {
@@ -35,13 +60,13 @@ pipeline {
         stage('Docker Build') {
             steps {
                 script {
-                    // Get the latest git tag
-                    def tag = sh(script: 'git describe --tags --abbrev=0', returnStdout: true).trim()
+                    def image = "quiz:${env.RELEASE_TAG}"
                     if (isUnix()) {
-                        sh "docker build -t quiz:${tag} ."
+                        sh "docker build -t ${image} ."
                     } else {
-                        bat "docker build -t quiz:${tag} ."
+                        bat "docker build -t ${image} ."
                     }
+                    env.IMAGE_NAME = image
                 }
             }
         }
@@ -49,20 +74,16 @@ pipeline {
         stage('Docker Run') {
             steps {
                 script {
-                    // Remove existing container if it exists
+                    def port = params.HOST_PORT ?: '8085'
+                    def container = "quiz-${env.RELEASE_TAG}"
                     if (isUnix()) {
-                        sh 'docker rm -f quiz || true'
+                        sh "docker rm -f ${container} || true"
+                        sh "docker run -d -p ${port}:80 --name ${container} ${env.IMAGE_NAME}"
                     } else {
-                        bat 'docker rm -f quiz || exit /b 0'
+                        bat "docker rm -f ${container} || exit /b 0"
+                        bat "docker run -d -p ${port}:80 --name ${container} ${env.IMAGE_NAME}"
                     }
-
-                    // Run the new container
-                    def tag = sh(script: 'git describe --tags --abbrev=0', returnStdout: true).trim()
-                    if (isUnix()) {
-                        sh "docker run -d -p 8085:80 --name quiz quiz:${tag}"
-                    } else {
-                        bat "docker run -d -p 8085:80 --name quiz quiz:${tag}"
-                    }
+                    env.CONTAINER_NAME = container
                 }
             }
         }
@@ -70,18 +91,19 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 script {
+                    def port = params.HOST_PORT ?: '8085'
                     if (isUnix()) {
-                        sh 'node smoke-test.cjs'
+                        sh "SMOKE_PORT=${port} node smoke-test.cjs"
                     } else {
-                        bat 'node smoke-test.cjs'
+                        bat "set \"SMOKE_PORT=${port}\" && node smoke-test.cjs"
                     }
                 }
             }
         }
 
-        stage('Archive Build') {
+        stage('Archive') {
             steps {
-                archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: false
             }
         }
     }
@@ -89,10 +111,12 @@ pipeline {
     post {
         always {
             script {
-                if (isUnix()) {
-                    sh 'docker rm -f quiz || true'
-                } else {
-                    bat 'docker rm -f quiz || exit /b 0'
+                if (env.CONTAINER_NAME) {
+                    if (isUnix()) {
+                        sh "docker rm -f ${env.CONTAINER_NAME} || true"
+                    } else {
+                        bat "docker rm -f ${env.CONTAINER_NAME} || exit /b 0"
+                    }
                 }
             }
         }
