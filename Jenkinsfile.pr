@@ -47,13 +47,13 @@ pipeline {
         stage('Docker Run') {
             steps {
                 script {
-                    // Remove existing container if it exists
+                    // Remove existing container if it exists (safe)
                     if (isUnix()) {
                         sh 'docker rm -f quiz-pr || true'
                     } else {
                         bat 'docker rm -f quiz-pr || exit /b 0'
                     }
-                    
+
                     // Run the new container
                     if (isUnix()) {
                         sh 'docker run -d -p 8085:80 --name quiz-pr quiz-pr'
@@ -67,11 +67,14 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 script {
+                    // The repo currently uses "type":"module" so .js is treated as ESM.
+                    // Preferred fix: rename smoke-test.js -> smoke-test.cjs (or convert it to ESM).
+                    // Here we attempt to run smoke-test.cjs. If you haven't renamed the file,
+                    // either rename it or convert it to ESM (use import).
                     if (isUnix()) {
-                        sh 'SMOKE_PORT=8085 node smoke-test.js'
+                        sh 'node smoke-test.cjs'
                     } else {
-                        // set environment variable for this command and run node on Windows CMD
-                        bat 'set "SMOKE_PORT=8085" && node smoke-test.js'
+                        bat 'node smoke-test.cjs'
                     }
                 }
             }
@@ -79,7 +82,8 @@ pipeline {
 
         stage('Archive Build') {
             steps {
-                archiveArtifacts artifacts: 'build/**', allowEmptyArchive: true
+                // Vite outputs to "dist" by default
+                archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: true
             }
         }
     }
@@ -88,10 +92,8 @@ pipeline {
         always {
             script {
                 if (isUnix()) {
-                    // ignore errors if container not present
                     sh 'docker rm -f quiz-pr || true'
                 } else {
-                    // ensure the post step exits successfully even if container is missing
                     bat 'docker rm -f quiz-pr || exit /b 0'
                 }
             }
