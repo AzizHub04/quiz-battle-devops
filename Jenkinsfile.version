@@ -2,12 +2,8 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'TAG', defaultValue: '', description: 'Git tag to build (e.g. v1.2.3). If empty, the tag pointing at HEAD or latest tag will be used.')
+        string(name: 'TAG', defaultValue: '', description: 'Git tag to build (e.g. v1.2.4). If empty, the tag pointing at HEAD or latest tag will be used.')
         string(name: 'HOST_PORT', defaultValue: '8085', description: 'Host port for container')
-    }
-
-    environment {
-        WORKDIR = "${env.WORKSPACE}"
     }
 
     stages {
@@ -21,16 +17,9 @@ pipeline {
                     def chosenTag = params.TAG?.trim()
                     if (!chosenTag) {
                         if (isUnix()) {
-                            chosenTag = sh(script: 'git tag --points-at HEAD || true', returnStdout: true).trim()
-                            if (!chosenTag) {
-                                chosenTag = sh(script: 'git describe --tags --abbrev=0 2>/dev/null || true', returnStdout: true).trim()
-                            }
+                            chosenTag = sh(script: "git tag --points-at HEAD || git describe --tags --abbrev=0 2>/dev/null || true", returnStdout: true).trim()
                         } else {
-                            // run in cmd; avoid non-zero failing the step
-                            chosenTag = bat(returnStdout: true, script: 'git tag --points-at HEAD 2>nul || echo').trim()
-                            if (!chosenTag) {
-                                chosenTag = bat(returnStdout: true, script: 'git describe --tags --abbrev=0 2>nul || echo').trim()
-                            }
+                            chosenTag = bat(returnStdout: true, script: 'git tag --points-at HEAD 2>nul || (git describe --tags --abbrev=0 2>nul || echo)').trim()
                         }
                     }
 
@@ -86,15 +75,15 @@ pipeline {
             steps {
                 script {
                     def port = params.HOST_PORT ?: '8085'
-                    def containerName = "quiz-${env.RELEASE_TAG}"
+                    def container = "quiz-${env.RELEASE_TAG}"
                     if (isUnix()) {
-                        sh "docker rm -f ${containerName} || true"
-                        sh "docker run -d -p ${port}:80 --name ${containerName} ${env.IMAGE_NAME}"
+                        sh "docker rm -f ${container} || true"
+                        sh "docker run -d -p ${port}:80 --name ${container} ${env.IMAGE_NAME}"
                     } else {
-                        bat "docker rm -f ${containerName} || exit /b 0"
-                        bat "docker run -d -p ${port}:80 --name ${containerName} ${env.IMAGE_NAME}"
+                        bat "docker rm -f ${container} || exit /b 0"
+                        bat "docker run -d -p ${port}:80 --name ${container} ${env.IMAGE_NAME}"
                     }
-                    env.CONTAINER_NAME = containerName
+                    env.CONTAINER_NAME = container
                 }
             }
         }
